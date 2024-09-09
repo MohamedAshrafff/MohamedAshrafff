@@ -6,20 +6,19 @@
 
 <img src="https://github.com/MohamedAshrafff/MohamedAshrafff/blob/main/profileImage.png" align="right" width="25%"/>
 
-I'm a senior student who is passionate about creating technology to elevate people. Some technologies I enjoy working with include JavaScript, ReactJS, and React-Native.
+I'm an Associate Software Engineer who is passionate about creating technology to elevate people. Some technologies I enjoy working with include JavaScript, ReactJS, Java-Spring , Spring-Boot, and React-Native.
 
 - 🚀 I love to build websites & mobile apps
 - 💡 Problem solver and creative coder
 - 🎨 UI/UX enthusiast
-- 💬 Ask me about **ReactJs and Frontend**
+- 💬 Ask me about **Software Engineering**
 
 ## About Me
 I thrive on challenges and enjoy tackling complex problems through code. Being a problem solver is not just a skill for me; it's a mindset that fuels my passion for coding. I find joy in bringing creative solutions to the table and making a positive impact through technology. As a UI/UX enthusiast, I also strive to create engaging and user-friendly interfaces.
 
 ## Technologies & Skills
-- JavaScript, ReactJS, React-Native
-- Frontend development enthusiast
-- UI/UX design and implementation
+- JavaScript, ReactJS, React-Native ,Java , Spring , Spring Boot
+- FullStack development enthusiast
 - Continuous learner in the ever-evolving tech landscape
 
 Feel free to connect and explore.
