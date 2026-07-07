@@ -23,3 +23,12 @@ jobs:
 
       - name: Dump full event context
         run: echo '${{ toJSON(github.event.workflow_run) }}'
+
+      - name: Fetch failed jobs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            ${{ github.event.workflow_run.jobs_url }}
