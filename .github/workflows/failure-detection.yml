@@ -40,4 +40,4 @@ jobs:
           curl -s -L \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/MohamedAshrafff/MohamedAshrafff/actions/jobs/85602672062/logs"
+            "https://api.github.com/repos/${{ github.event.workflow_run.repository.full_name }}/actions/jobs/${{ fromJSON(steps.fetch-jobs.outputs.jobs).jobs[0].id }}/logs"
