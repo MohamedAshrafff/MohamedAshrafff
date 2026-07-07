@@ -32,3 +32,12 @@ jobs:
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
             ${{ github.event.workflow_run.jobs_url }}
+
+      - name: Fetch logs of failed job
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -s -L \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/MohamedAshrafff/MohamedAshrafff/actions/jobs/85602672062/logs"
