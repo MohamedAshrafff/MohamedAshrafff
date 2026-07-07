@@ -29,10 +29,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          curl -s \
+          response=$(curl -s \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            ${{ github.event.workflow_run.jobs_url }}
+            "${{ github.event.workflow_run.jobs_url }}")
+
+          job_id=$(echo "$response" | jq -r '.jobs[] | select(.conclusion=="failure") | .id' | head -1)
+
+          echo "job_id=$job_id" >> $GITHUB_OUTPUT
 
       - name: Fetch logs of failed job
         env:
@@ -41,4 +45,4 @@ jobs:
           curl -s -L \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{github.event.workflow_run.repository.full_name}}/actions/jobs/${{fromJSON(steps.fetch-jobs.outputs.jobs).jobs[0].id}}/logs"
+            "https://api.github.com/repos/${{ github.event.workflow_run.repository.full_name }}/actions/jobs/${{ steps.fetch-jobs.outputs.job_id }}/logs"
