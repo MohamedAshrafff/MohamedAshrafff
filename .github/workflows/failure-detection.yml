@@ -1,29 +1,26 @@
-name: failure-detection
+name: Failure Detection
 
 on:
-  workflow_run:
-    workflows:
-      - Fake CI
-    types:
-      - completed
+  workflow_call:
+    inputs:
+      run_id:
+        required: true
+        type: string
+      repo:
+        required: true
+        type: string
+      jobs_url:
+        required: true
+        type: string
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: true
 
 jobs:
   detect:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
 
     steps:
-      - name: Detected a failure
-        run: |
-          echo "FOUND FAILURE"
-          echo "Workflow: ${{ github.event.workflow_run.name }}"
-          echo "Branch: ${{ github.event.workflow_run.head_branch }}"
-          echo "Run ID: ${{ github.event.workflow_run.id }}"
-          echo "Conclusion: ${{ github.event.workflow_run.conclusion }}"
-
-      - name: Dump full event context
-        run: echo '${{ toJSON(github.event.workflow_run) }}'
-
       - name: Fetch failed jobs
         id: fetch-jobs
         env:
@@ -32,7 +29,7 @@ jobs:
           response=$(curl -s \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "${{ github.event.workflow_run.jobs_url }}")
+            "${{ inputs.jobs_url }}")
 
           job_id=$(echo "$response" | jq -r '.jobs[] | select(.conclusion=="failure") | .id' | head -1)
 
@@ -46,7 +43,7 @@ jobs:
           logs=$(curl -s -L \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{github.event.workflow_run.repository.full_name}}/actions/jobs/${{steps.fetch-jobs.outputs.job_id}}/logs")
+            "https://api.github.com/repos/${{ inputs.repo }}/actions/jobs/${{ steps.fetch-jobs.outputs.job_id }}/logs")
 
           truncated=$(echo "$logs" | head -50)
 
