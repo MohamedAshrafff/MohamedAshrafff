@@ -38,11 +38,27 @@ jobs:
 
           echo "job_id=$job_id" >> $GITHUB_OUTPUT
 
-      - name: Fetch logs of failed job
+      - name: Analyze logs with Claude
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          curl -s -L \
+          logs=$(curl -s -L \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.event.workflow_run.repository.full_name }}/actions/jobs/${{ steps.fetch-jobs.outputs.job_id }}/logs"
+            "https://api.github.com/repos/${{ github.event.workflow_run.repository.full_name }}/actions/jobs/${{ steps.fetch-jobs.outputs.job_id }}/logs")
+
+          response=$(curl -s \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"model\": \"claude-opus-4-6\",
+              \"max_tokens\": 1024,
+              \"messages\": [{
+                \"role\": \"user\",
+                \"content\": \"You are a CI/CD failure analyst. Analyze this GitHub Actions log and tell me: 1) What failed 2) Why it failed 3) How to fix it. Keep it short and clear.\n\nLogs:\n$(echo "$logs" | head -50)\"
+              }]
+            }")
+
+          echo "$response"
