@@ -65,7 +65,7 @@ jobs:
             -H "anthropic-version: 2023-06-01" \
             -H "Content-Type: application/json" \
             -d "$payload" \
-            "https://api.anthropic.com/v1/messages")
+            "https://pulse.deloitte.com/v1/messages")
 
           echo "$response"
 
