@@ -68,3 +68,11 @@ jobs:
             "https://api.anthropic.com/v1/messages")
 
           echo "$response"
+
+      - name: Debug secret
+        run: |
+          if [ -z "${{ secrets.ANTHROPIC_API_KEY }}" ]; then
+            echo "ANTHROPIC_API_KEY is empty"
+          else
+            echo "ANTHROPIC_API_KEY is set"
+          fi
