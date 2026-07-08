@@ -15,6 +15,8 @@ on:
     secrets:
       ANTHROPIC_API_KEY:
         required: true
+      GH_TOKEN:
+        required: true
 
 jobs:
   detect:
@@ -24,7 +26,7 @@ jobs:
       - name: Fetch failed jobs
         id: fetch-jobs
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
           response=$(curl -s \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
@@ -37,7 +39,7 @@ jobs:
 
       - name: Analyze logs with Claude
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           logs=$(curl -s -L \
