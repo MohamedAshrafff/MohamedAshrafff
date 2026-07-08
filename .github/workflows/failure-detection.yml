@@ -12,6 +12,13 @@ on:
       jobs_url:
         required: true
         type: string
+      head_sha:
+        required: true
+        type: string
+      pr_number:
+        required: false
+        type: string
+        default: ""
     secrets:
       ANTHROPIC_API_KEY:
         required: true
@@ -23,8 +30,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Fetch failed jobs
-        id: fetch-jobs
+      - name: Fetch logs of ALL failed jobs
+        id: fetch-logs
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
@@ -33,30 +40,64 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "${{ inputs.jobs_url }}")
 
-          job_id=$(echo "$response" | jq -r '.jobs[] | select(.conclusion=="failure") | .id' | head -1)
+          # ALL failed job ids, not just the first
+          job_ids=$(echo "$response" | jq -r '.jobs[] | select(.conclusion=="failure") | .id')
 
-          echo "job_id=$job_id" >> $GITHUB_OUTPUT
+          all_logs=""
+          for job_id in $job_ids; do
+            job_name=$(echo "$response" | jq -r ".jobs[] | select(.id==$job_id) | .name")
 
-      - name: Analyze logs with Claude
+            raw=$(curl -s -L \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ inputs.repo }}/actions/jobs/$job_id/logs")
+
+            # Smart truncation: error-signal lines + the tail (where errors live)
+            signals=$(echo "$raw" | grep -iE "error|fail|exception|cannot find|not found|missing" | head -30)
+            tail_lines=$(echo "$raw" | tail -120)
+
+            all_logs="$all_logs
+
+          ===== FAILED JOB: $job_name =====
+          --- Error signals ---
+          $signals
+          --- End of log ---
+          $tail_lines"
+          done
+
+          # Save multi-line logs to a file (outputs don't handle multiline well)
+          echo "$all_logs" > /tmp/failure_logs.txt
+          echo "Collected logs from $(echo "$job_ids" | wc -l) failed job(s)"
+
+      - name: Fetch the code changes (diff)
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          curl -s \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.diff" \
+            "https://api.github.com/repos/${{ inputs.repo }}/commits/${{ inputs.head_sha }}" \
+            | head -300 > /tmp/code_diff.txt
+
+          echo "Diff captured ($(wc -l < /tmp/code_diff.txt) lines)"
+
+      - name: Analyze with Claude
+        id: analyze
+        env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          logs=$(curl -s -L \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ inputs.repo }}/actions/jobs/${{ steps.fetch-jobs.outputs.job_id }}/logs")
-
-          truncated=$(echo "$logs" | head -50)
+          logs=$(cat /tmp/failure_logs.txt)
+          diff=$(cat /tmp/code_diff.txt)
 
           payload=$(jq -n \
-            --arg log_content "$truncated" \
+            --arg logs "$logs" \
+            --arg diff "$diff" \
             '{
               model: "claude-opus-4-6",
-              max_tokens: 1024,
+              max_tokens: 2048,
               messages: [{
                 role: "user",
-                content: ("You are a CI/CD failure analyst. Analyze this GitHub Actions log and tell me: 1) What failed 2) Why it failed 3) How to fix it. Keep it short and clear.\n\nLogs:\n" + $log_content)
+                content: ("You are a CI/CD failure analyst. You will receive (1) logs from ALL failed jobs and (2) the code diff of the commit that triggered this run. The diff is often the root cause - check it first.\n\nRespond in EXACTLY this markdown format:\n\n## 🔴 <FAILURE_TYPE: BUILD | TEST | LINT | DEPLOY | SECURITY | INFRA>\n\n**Root cause:** <1-2 sentences. If the diff caused it, say exactly which change.>\n\n**Fix:**\n```\n<the exact change to make, as a code snippet>\n```\n\n**Files to check:** <file names>\n\n---\n\n### FAILED JOBS LOGS:\n" + $logs + "\n\n### CODE DIFF OF TRIGGERING COMMIT:\n" + $diff)
               }]
             }')
 
@@ -67,4 +108,25 @@ jobs:
             -d "$payload" \
             "https://pulse.deloitte.com/v1/messages")
 
-          echo "$response"
+          # Extract clean text and save for the comment step
+          echo "$response" | jq -r '.content[0].text' > /tmp/analysis.md
+          cat /tmp/analysis.md
+
+      - name: Post analysis as PR comment
+        if: ${{ inputs.pr_number != '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          body=$(cat /tmp/analysis.md)
+
+          payload=$(jq -n --arg body "$body
+
+          ---
+          <sub>🚁 Analyzed by Propeller</sub>" '{ body: $body }')
+
+          curl -s \
+            -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -d "$payload" \
+            "https://api.github.com/repos/${{ inputs.repo }}/issues/${{ inputs.pr_number }}/comments"
