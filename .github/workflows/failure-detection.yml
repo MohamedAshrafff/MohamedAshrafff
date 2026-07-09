@@ -15,6 +15,9 @@ on:
       head_sha:
         required: true
         type: string
+      claude_api:
+        required: true
+        type: string
       pr_number:
         required: false
         type: string
@@ -106,7 +109,7 @@ jobs:
             -H "anthropic-version: 2023-06-01" \
             -H "Content-Type: application/json" \
             -d "$payload" \
-            "https://pulse.deloitte.com/v1/messages")
+            "${{ inputs.claude_api }}")
 
           # Extract clean text and save for the comment step
           echo "$response" | jq -r '.content[0].text' > /tmp/analysis.md
@@ -122,7 +125,7 @@ jobs:
           payload=$(jq -n --arg body "$body
 
           ---
-          <sub>🚁 Analyzed by Propeller</sub>" '{ body: $body }')
+          <sub>🚁 Analyzed by Failure Intelligence Agent</sub>" '{ body: $body }')
 
           curl -s \
             -X POST \
