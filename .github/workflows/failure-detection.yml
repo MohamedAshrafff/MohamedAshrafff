@@ -15,9 +15,10 @@ on:
       head_sha:
         required: true
         type: string
-      claude_api:
-        required: true
+      claude_api_url:
+        required: false
         type: string
+        default: "https://api.anthropic.com/v1/messages"
       pr_number:
         required: false
         type: string
@@ -109,7 +110,7 @@ jobs:
             -H "anthropic-version: 2023-06-01" \
             -H "Content-Type: application/json" \
             -d "$payload" \
-            "${{ inputs.claude_api }}")
+            "${{ inputs.claude_api_url }}")
 
           # Extract clean text and save for the comment step
           echo "$response" | jq -r '.content[0].text' > /tmp/analysis.md
