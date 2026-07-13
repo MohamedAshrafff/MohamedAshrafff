@@ -80,15 +80,15 @@ jobs:
 
             all_logs="$all_logs
 
-===== FAILED JOB: $job_name =====
-First failing step: ${failing_step:-unknown}
-Total log lines: $total_lines
---- Error signals (up to 40 lines) ---
-$signals
---- Log tail (last 80 lines) ---
-$tail_lines
-===== END JOB: $job_name ====="
-          done
+            ===== FAILED JOB: $job_name =====
+            First failing step: ${failing_step:-unknown}
+            Total log lines: $total_lines
+            --- Error signals (up to 40 lines) ---
+            $signals
+            --- Log tail (last 80 lines) ---
+            $tail_lines
+            ===== END JOB: $job_name ====="
+                      done
 
           echo "$all_logs" > /tmp/failure_logs.txt
           echo "Collected logs from $failed_count failed job(s) out of $total_jobs total"
