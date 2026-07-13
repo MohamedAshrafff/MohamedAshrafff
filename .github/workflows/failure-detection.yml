@@ -23,6 +23,10 @@ on:
         required: false
         type: string
         default: ""
+      author_login:
+        required: false
+        type: string
+        default: ""
     secrets:
       ANTHROPIC_API_KEY:
         required: true
@@ -44,46 +48,71 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "${{ inputs.jobs_url }}")
 
-          # ALL failed job ids, not just the first
+          total_jobs=$(echo "$response" | jq '.jobs | length')
           job_ids=$(echo "$response" | jq -r '.jobs[] | select(.conclusion=="failure") | .id')
+          failed_count=$(echo "$job_ids" | grep -c . || true)
 
           all_logs=""
           for job_id in $job_ids; do
             job_name=$(echo "$response" | jq -r ".jobs[] | select(.id==$job_id) | .name")
+
+            # First step that didn't succeed — tells Claude exactly where the job broke
+            failing_step=$(echo "$response" | jq -r "
+              .jobs[] | select(.id==$job_id) |
+              .steps[] | select(
+                .conclusion != \"success\" and
+                .conclusion != \"skipped\" and
+                .conclusion != null
+              ) | .name" | head -1)
 
             raw=$(curl -s -L \
               -H "Authorization: Bearer $GITHUB_TOKEN" \
               -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/${{ inputs.repo }}/actions/jobs/$job_id/logs")
 
-            # Smart truncation: error-signal lines + the tail (where errors live)
-            signals=$(echo "$raw" | grep -iE "error|fail|exception|cannot find|not found|missing" | head -30)
-            tail_lines=$(echo "$raw" | tail -120)
+            total_lines=$(echo "$raw" | wc -l)
+
+            # Per-job caps: 40 signal lines + 80 tail lines
+            signals=$(echo "$raw" | grep -iE \
+              "error|fail|exception|cannot find|not found|missing|SyntaxError|TypeError|Cannot|ENOENT|unexpected token" \
+              | head -40)
+            tail_lines=$(echo "$raw" | tail -80)
 
             all_logs="$all_logs
 
-          ===== FAILED JOB: $job_name =====
-          --- Error signals ---
-          $signals
-          --- End of log ---
-          $tail_lines"
+===== FAILED JOB: $job_name =====
+First failing step: ${failing_step:-unknown}
+Total log lines: $total_lines
+--- Error signals (up to 40 lines) ---
+$signals
+--- Log tail (last 80 lines) ---
+$tail_lines
+===== END JOB: $job_name ====="
           done
 
-          # Save multi-line logs to a file (outputs don't handle multiline well)
           echo "$all_logs" > /tmp/failure_logs.txt
-          echo "Collected logs from $(echo "$job_ids" | wc -l) failed job(s)"
+          echo "Collected logs from $failed_count failed job(s) out of $total_jobs total"
 
       - name: Fetch the code changes (diff)
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          curl -s \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.diff" \
-            "https://api.github.com/repos/${{ inputs.repo }}/commits/${{ inputs.head_sha }}" \
-            | head -300 > /tmp/code_diff.txt
-
-          echo "Diff captured ($(wc -l < /tmp/code_diff.txt) lines)"
+          # Prefer PR diff (full PR context) over single-commit diff when a PR exists
+          if [ -n "${{ inputs.pr_number }}" ]; then
+            curl -s \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.diff" \
+              "https://api.github.com/repos/${{ inputs.repo }}/pulls/${{ inputs.pr_number }}" \
+              | head -400 > /tmp/code_diff.txt
+            echo "PR diff captured ($(wc -l < /tmp/code_diff.txt) lines)"
+          else
+            curl -s \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.diff" \
+              "https://api.github.com/repos/${{ inputs.repo }}/commits/${{ inputs.head_sha }}" \
+              | head -300 > /tmp/code_diff.txt
+            echo "Commit diff captured ($(wc -l < /tmp/code_diff.txt) lines)"
+          fi
 
       - name: Analyze with Claude
         id: analyze
@@ -98,10 +127,11 @@ jobs:
             --arg diff "$diff" \
             '{
               model: "claude-opus-4-6",
-              max_tokens: 2048,
+              max_tokens: 1500,
+              temperature: 0,
               messages: [{
                 role: "user",
-                content: ("You are a CI/CD failure analyst. You will receive (1) logs from ALL failed jobs and (2) the code diff of the commit that triggered this run. The diff is often the root cause - check it first.\n\nRespond in EXACTLY this markdown format:\n\n## 🔴 <FAILURE_TYPE: BUILD | TEST | LINT | DEPLOY | SECURITY | INFRA>\n\n**Root cause:** <1-2 sentences. If the diff caused it, say exactly which change.>\n\n**Fix:**\n```\n<the exact change to make, as a code snippet>\n```\n\n**Files to check:** <file names>\n\n---\n\n### FAILED JOBS LOGS:\n" + $logs + "\n\n### CODE DIFF OF TRIGGERING COMMIT:\n" + $diff)
+                content: ("You are a CI/CD failure analyst. You receive logs from one or more failed CI jobs and the code diff that triggered the run.\n\nRULES — follow all of them:\n1. Analyse EACH failed job separately. Never blend failures from different jobs into one diagnosis.\n2. If an early job (install/build/compile) fails and later jobs cascaded or never ran as a result, mark that early job PRIMARY BLOCKER and mark the downstream jobs as CASCADED — give them no fix, just say fix the blocker first.\n3. Anchor every root-cause claim to an exact quoted log line or diff hunk. If you cannot find evidence, write: No evidence in provided logs/diff.\n4. Rate confidence: HIGH (clear evidence) | MEDIUM (likely but indirect) | LOW (guessing).\n5. Keep fix snippets short and exact — no boilerplate or explanations inside the code block.\n6. If the diff contains the root cause, say exactly which file and line.\n\nRespond in EXACTLY this format, repeated for EACH failed job:\n\n---\n## Job: <job name>\n### Type: BUILD | TEST | LINT | DEPLOY | INFRA | CASCADED\n**Primary blocker:** YES | NO\n**Root cause:** <1-2 sentences — quote the exact log line or diff line as evidence>\n**Confidence:** HIGH | MEDIUM | LOW\n**Fix:**\n```\n<exact fix snippet — or \"N/A: fix the primary blocker first\" if cascaded>\n```\n**Files:** <comma-separated file names, or \"none identified\">\n---\n\n### FAILED JOBS LOGS:\n" + $logs + "\n\n### CODE DIFF (PR-level if PR exists, otherwise commit-level):\n" + $diff)
               }]
             }')
 
@@ -112,7 +142,6 @@ jobs:
             -d "$payload" \
             "${{ inputs.claude_api_url }}")
 
-          # Extract clean text and save for the comment step
           echo "$response" | jq -r '.content[0].text' > /tmp/analysis.md
           cat /tmp/analysis.md
 
@@ -121,12 +150,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          body=$(cat /tmp/analysis.md)
+          analysis=$(cat /tmp/analysis.md)
+          sha="${{ inputs.head_sha }}"
+          author="${{ inputs.author_login }}"
 
-          payload=$(jq -n --arg body "$body
+          if [ -n "$author" ]; then
+            header="@${author} your CI run failed — here's the analysis:"$'\n\n'
+          else
+            header="CI run failed — here's the analysis:"$'\n\n'
+          fi
 
-          ---
-          <sub>🚁 Analyzed by Failure Intelligence Agent</sub>" '{ body: $body }')
+          footer=$'\n\n---\n'"<sub>🚁 Analyzed by Failure Intelligence Agent · ${sha}</sub>"
+
+          payload=$(jq -n \
+            --arg body "${header}${analysis}${footer}" \
+            '{ body: $body }')
 
           curl -s \
             -X POST \
